@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use crate::error::ParseError;
 
 #[derive(PartialEq, Debug, Clone)]
 enum Token {
@@ -19,10 +20,10 @@ const ALPHABET: &str = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 fn tokenize(source: &str) -> Result<Vec<Token>> {
     let mut tokens: Vec<Token> = vec![];
     let mut chars = source.chars().peekable();
-    while let Some(char) = chars.next() {
-        match char {
+    while let Some(ch) = chars.next() {
+        match ch {
             '0'..'9' | '.' => {
-                let mut number = char.to_string();
+                let mut number = ch.to_string();
                 while let Some(next_digit) = chars.peek() {
                     if DIGITS.contains(*next_digit) {
                         number.push(*next_digit);
@@ -37,7 +38,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
                 tokens.push(Token::Number(parsed));
             }
             'a'..'z' | 'A'..'Z' | '_' => {
-                let mut identifier = char.to_string();
+                let mut identifier = ch.to_string();
                 while let Some(next_letter) = chars.peek() {
                     if ALPHABET.contains(*next_letter) {
                         identifier.push(*next_letter);
@@ -55,7 +56,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
             '(' => tokens.push(Token::OpenParen),
             ')' => tokens.push(Token::CloseParen),
             ' ' | '\t' => {}
-            _ => return Err(todo!()),
+            _ => return Err(ParseError::InvalidCharacter(ch).into()),
         }
     }
     return Ok(tokens);
