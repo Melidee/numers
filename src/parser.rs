@@ -1,5 +1,5 @@
-use anyhow::{Context, Result};
 use crate::error::ParseError;
+use anyhow::{Context, Result};
 
 #[derive(PartialEq, Debug, Clone)]
 enum Token {
@@ -8,11 +8,12 @@ enum Token {
     Multiply,
     Divide,
     Exponent,
-    Identifier(String),
-    Number(f64),
     Assign,
     OpenParen,
     CloseParen,
+    Comma,
+    Identifier(String),
+    Number(f64),
 }
 
 const DIGITS: &str = ".0123456789";
@@ -43,6 +44,8 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
                     if ALPHABET.contains(*next_letter) {
                         identifier.push(*next_letter);
                         chars.next();
+                    } else {
+                        break;
                     }
                 }
                 tokens.push(Token::Identifier(identifier));
@@ -53,6 +56,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
             '/' => tokens.push(Token::Divide),
             '^' => tokens.push(Token::Exponent),
             '=' => tokens.push(Token::Assign),
+            ',' => tokens.push(Token::Comma),
             '(' => tokens.push(Token::OpenParen),
             ')' => tokens.push(Token::CloseParen),
             ' ' | '\t' => {}
@@ -152,6 +156,102 @@ mod tests {
             Token::Number(5.0),
             Token::Exponent,
             Token::Number(6.0),
+        ];
+
+        let tokenized = tokenize(&source);
+        if let Ok(tokens) = tokenized {
+            assert_eq!(expected, tokens)
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn tokenize_empty_parenthesis() {
+        let source = "()";
+        let expected = vec![Token::OpenParen, Token::CloseParen];
+
+        let tokenized = tokenize(&source);
+        if let Ok(tokens) = tokenized {
+            assert_eq!(expected, tokens)
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn tokenize_parenthesis_operation() {
+        let source = "1+(2-3)";
+        let expected = vec![
+            Token::Number(1.0),
+            Token::Add,
+            Token::OpenParen,
+            Token::Number(2.0),
+            Token::Subtract,
+            Token::Number(3.0),
+            Token::CloseParen,
+        ];
+
+        let tokenized = tokenize(&source);
+        if let Ok(tokens) = tokenized {
+            assert_eq!(expected, tokens)
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn tokenize_zero_arg_function() {
+        let source = "f()";
+        let expected = vec![
+            Token::Identifier("f".to_string()),
+            Token::OpenParen,
+            Token::CloseParen,
+        ];
+
+        let tokenized = tokenize(&source);
+        if let Ok(tokens) = tokenized {
+            assert_eq!(expected, tokens)
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn tokenize_simple_function() {
+        let source = "func(x)";
+        let expected = vec![
+            Token::Identifier("func".to_string()),
+            Token::OpenParen,
+            Token::Identifier("x".to_string()),
+            Token::CloseParen,
+        ];
+
+        let tokenized = tokenize(&source);
+        if let Ok(tokens) = tokenized {
+            assert_eq!(expected, tokens)
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn tokenize_function_complex_args() {
+        let source = "f(1+2,g(x),var)";
+        let expected = vec![
+            Token::Identifier("f".to_string()),
+            Token::OpenParen,
+            Token::Number(1.0),
+            Token::Add,
+            Token::Number(2.0),
+            Token::Comma,
+            Token::Identifier("g".to_string()),
+            Token::OpenParen,
+            Token::Identifier("x".to_string()),
+            Token::CloseParen,
+            Token::Comma,
+            Token::Identifier("var".to_string()),
+            Token::CloseParen,
         ];
 
         let tokenized = tokenize(&source);
