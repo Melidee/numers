@@ -16,6 +16,52 @@ enum Token {
     Number(f64),
 }
 
+impl Token {
+    fn is_operator(&self) -> bool {
+        [
+            Token::Add,
+            Token::Subtract,
+            Token::Multiply,
+            Token::Divide,
+            Token::Exponent,
+        ]
+        .contains(self)
+    }
+
+    fn presidence(&self) -> i32 {
+        match self {
+            Token::Add => 2,
+            Token::Subtract => 2,
+            Token::Multiply => 3,
+            Token::Divide => 3,
+            Token::Exponent => 4,
+            _ => 1,
+        }
+    }
+
+    fn is_left_associative(&self) -> bool {
+        match self {
+            Token::Add | Token::Subtract | Token::Multiply | Token::Divide => true,
+            Token::Exponent => false,
+            _ => false,
+        }
+    }
+
+    fn is_number(&self) -> bool {
+        match self {
+            Token::Number(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_identifier(&self) -> bool {
+        match self {
+            Token::Identifier(_) => true,
+            _ => false,
+        }
+    }
+}
+
 const DIGITS: &str = ".0123456789";
 const ALPHABET: &str = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 fn tokenize(source: &str) -> Result<Vec<Token>> {
@@ -70,7 +116,57 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
 /// This function is an implementation of the shunting yard algorithm.
 /// https://en.wikipedia.org/wiki/Shunting_yard_algorithm#The_algorithm_in_detail
 fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
-    todo!()
+    let mut output: Vec<Token> = vec![];
+    let mut stack: Vec<Token> = vec![];
+    let mut tokens = expr.iter().peekable();
+
+    let should_pop = |t: &Token, stack: &Vec<Token>| {
+        if stack.is_empty() {
+            return false;
+        }
+        let last = stack[stack.len() - 1].clone();
+        last != Token::OpenParen
+            && (last.presidence() > t.presidence()
+                || last.presidence() >= t.presidence() && t.is_left_associative())
+    };
+
+    while let Some(token) = tokens.next() {
+        let next_is_opening = if let Some(next) = tokens.peek() {
+            next == &&Token::OpenParen
+        } else {
+            false
+        };
+        match token {
+            Token::OpenParen => stack.push(token.clone()),
+            Token::CloseParen => {
+                while let Some(t) = stack.pop() {
+                    if t != Token::OpenParen {
+                        output.push(t.clone());
+                    }
+                }
+            }
+            Token::Comma => {
+                while let Some(t) = stack.last() {
+                    if t != &Token::OpenParen {
+                        output.push(t.clone());
+                        stack.pop();
+                    }
+                }
+            }
+            Token::Identifier(_) if next_is_opening => stack.push(token.clone()), // if identifier is a function
+            Token::Identifier(_) | Token::Number(_) => output.push(token.clone()),
+            _ => {
+                // any operator
+                while should_pop(token, &stack) {
+                    output.push(stack.pop().unwrap());
+                }
+                stack.push(token.clone());
+            }
+        }
+    }
+    eprintln!("stack: {:?}\noutput: {:?}\ntokens: {:?}\n", stack, output, tokens.collect::<Vec<&Token>>());
+    stack.iter().rev().for_each(|op| output.push(op.clone()));
+    return Ok(output);
 }
 
 #[cfg(test)]
@@ -346,6 +442,7 @@ mod tests {
     #[test]
     fn rpn_conversion_with_parenthesis() {
         let input = vec![
+            // [1 + ( 2 + 3)]
             Token::Number(1.0),
             Token::Add,
             Token::OpenParen,
@@ -355,11 +452,89 @@ mod tests {
             Token::CloseParen,
         ];
         let expected = vec![
+            // [1 2 3 - +]
             Token::Number(1.0),
             Token::Number(2.0),
             Token::Number(3.0),
             Token::Subtract,
             Token::Add,
+        ];
+        let result = infix_to_rpn(input);
+        if let Ok(output) = result {
+            assert_eq!(output, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn rpn_conversion_with_functions() {
+        let input = vec![
+            // [1 + ( f ( x , y) - 3 ) ]
+            Token::Number(1.0),
+            Token::Add,
+            Token::OpenParen,
+            Token::Identifier("f".to_string()),
+            Token::OpenParen,
+            Token::Identifier("x".to_string()),
+            Token::Comma,
+            Token::Identifier("y".to_string()),
+            Token::CloseParen,
+            Token::Subtract,
+            Token::Number(3.0),
+            Token::CloseParen,
+        ];
+        let expected = vec![
+            // [ 1 x y f() 3 - +]
+            Token::Number(1.0),
+            Token::Identifier("x".to_string()),
+            Token::Identifier("y".to_string()),
+            Token::Identifier("f".to_string()),
+            Token::Number(3.0),
+            Token::Subtract,
+            Token::Add,
+        ];
+        let result = infix_to_rpn(input);
+        if let Ok(output) = result {
+            assert_eq!(output, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn rpn_conversion_function_arguments() {
+        let input = vec![
+            // [f ( 1 + 2 , 3 - 4 / 5 ) + 6]
+            Token::Identifier("f".to_string()),
+            Token::OpenParen,
+            Token::Number(1.0),
+            Token::Add,
+            Token::Number(2.0),
+            Token::Comma,
+            Token::Number(3.0),
+            Token::Subtract,
+            Token::Number(4.0),
+            Token::Divide,
+            Token::Number(5.0),
+            Token::CloseParen,
+            Token::Add,
+            Token::Number(6.0),
+        ];
+        let expected = vec![
+            // [f ( 1 2 + , 3 4 5 / - ) 6 +]
+            Token::Number(1.0),
+            Token::Number(2.0),
+            Token::Add,
+            Token::Number(3.0),
+            Token::Number(4.0),
+            Token::Number(5.0),
+            Token::Divide,
+            Token::Subtract,
+            Token::Identifier("f".to_string()),
+            Token::Number(6.0),
+            Token::Add,
+            
         ];
         let result = infix_to_rpn(input);
         if let Ok(output) = result {
