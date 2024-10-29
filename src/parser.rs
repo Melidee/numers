@@ -66,6 +66,13 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
     return Ok(tokens);
 }
 
+/// Converts an infix expression to reverse polish notation to make evaluation simpler.
+/// This function is an implementation of the shunting yard algorithm.
+/// https://en.wikipedia.org/wiki/Shunting_yard_algorithm#The_algorithm_in_detail
+fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +281,91 @@ mod tests {
         let source = "1+}3";
         let tokenized = tokenize(&source);
         assert!(tokenized.is_err())
+    }
+
+    #[test]
+    fn rpn_conversion_1_plus_2() {
+        let input = vec![
+            // [1 + 2]
+            Token::Number(1.0),
+            Token::Add,
+            Token::Number(2.0),
+        ];
+        let expected = vec![
+            // [1 2 +]
+            Token::Number(1.0),
+            Token::Number(2.0),
+            Token::Add,
+        ];
+        let result = infix_to_rpn(input);
+        if let Ok(output) = result {
+            assert_eq!(output, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn rpn_conversion_all_operators() {
+        let input = vec![
+            // [1 + 2 - 3 * 4 / 5 ^ 6]
+            Token::Number(1.0),
+            Token::Add,
+            Token::Number(2.0),
+            Token::Subtract,
+            Token::Number(3.0),
+            Token::Multiply,
+            Token::Number(4.0),
+            Token::Divide,
+            Token::Number(5.0),
+            Token::Exponent,
+            Token::Number(6.0),
+        ];
+        let expected = vec![
+            // [1 2 + 3 4 * 5 6 ^ / -]
+            Token::Number(1.0),
+            Token::Number(2.0),
+            Token::Add,
+            Token::Number(3.0),
+            Token::Number(4.0),
+            Token::Multiply,
+            Token::Number(5.0),
+            Token::Number(6.0),
+            Token::Exponent,
+            Token::Divide,
+            Token::Subtract,
+        ];
+        let result = infix_to_rpn(input);
+        if let Ok(output) = result {
+            assert_eq!(output, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn rpn_conversion_with_parenthesis() {
+        let input = vec![
+            Token::Number(1.0),
+            Token::Add,
+            Token::OpenParen,
+            Token::Number(2.0),
+            Token::Subtract,
+            Token::Number(3.0),
+            Token::CloseParen,
+        ];
+        let expected = vec![
+            Token::Number(1.0),
+            Token::Number(2.0),
+            Token::Number(3.0),
+            Token::Subtract,
+            Token::Add,
+        ];
+        let result = infix_to_rpn(input);
+        if let Ok(output) = result {
+            assert_eq!(output, expected)
+        } else {
+            assert!(false)
+        }
     }
 }
