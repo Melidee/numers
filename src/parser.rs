@@ -2,7 +2,59 @@ use crate::error::ParseError;
 use anyhow::{Context, Result};
 
 #[derive(PartialEq, Debug, Clone)]
-enum Token {
+pub enum Statement {
+    Declaration(Declaration),
+    Expression(Vec<Token>),
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub struct Declaration {
+    name: String,
+    args: Vec<String>,
+    body: Vec<Token>,
+}
+
+pub fn parse(source: &str) -> Result<Vec<Statement>> {
+    let mut statements: Vec<Statement> = vec![];
+    for (line_num, line) in source.split('\n').enumerate() {
+        let tokens = tokenize(line).context(format!("on line {line_num}"))?;
+        if tokens.contains(&Token::Assign) {
+            let (id, expr) = tokens
+                .split_once(|t| t == &Token::Assign)
+                .expect("there must be at least one ocurrance of '=' in tokens");
+            let (name, args) = split_declaration(id)?;
+            let body = infix_to_rpn(expr.to_vec()).context(format!("on line {line_num}"))?;
+            statements.push(Statement::Declaration(Declaration { name, args, body }));
+        } else {
+            let rpn = infix_to_rpn(tokens).context(format!("on line {line_num}"))?;
+            statements.push(Statement::Expression(rpn));
+        }
+    }
+    return Ok(statements);
+}
+
+fn split_declaration(declaration: &[Token]) -> Result<(String, Vec<String>)> {
+    let name = if let Some(Token::Identifier(n)) = declaration.get(0) {
+        n
+    } else {
+        return Err(ParseError::InvalidAssignment.into());
+    };
+
+    let args = declaration
+        .into_iter()
+        .skip(1)
+        .filter(|token| token.is_identifier())
+        .map(|token| match token {
+            Token::Identifier(arg) => arg.to_owned(),
+            _ => panic!("impossible"),
+        })
+        .collect();
+
+    return Ok((name.clone(), args));
+}
+
+#[derive(PartialEq, Debug, Clone)]
+pub enum Token {
     Add,
     Subtract,
     Multiply,
@@ -84,7 +136,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
                     .context(format!("failed to parse float literal: {}", number))?;
                 tokens.push(Token::Number(parsed));
             }
-            'a'..'z' | 'A'..'Z' | '_' => {
+            'a'..='z' | 'A'..='Z' | '_' => {
                 let mut identifier = ch.to_string();
                 while let Some(next_letter) = chars.peek() {
                     if ALPHABET.contains(*next_letter) {
@@ -139,9 +191,14 @@ fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
         match token {
             Token::OpenParen => stack.push(token.clone()),
             Token::CloseParen => {
-                while !stack.is_empty() && let Some(top) = stack.pop() {
+                while !stack.is_empty()
+                    && let Some(top) = stack.pop()
+                {
                     if top == Token::OpenParen {
-                        if !stack.is_empty() && let Some(next_top) = stack.last() && next_top.is_identifier() {
+                        if !stack.is_empty()
+                            && let Some(next_top) = stack.last()
+                            && next_top.is_identifier()
+                        {
                             output.push(stack.pop().unwrap());
                         }
                         break;
@@ -151,7 +208,9 @@ fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
                 }
             }
             Token::Comma => {
-                while !stack.is_empty() && let Some(top) = stack.pop() {
+                while !stack.is_empty()
+                    && let Some(top) = stack.pop()
+                {
                     if top == Token::OpenParen {
                         break;
                     } else {
@@ -162,7 +221,7 @@ fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
             Token::Identifier(_) if next_is_opening => {
                 stack.push(Token::OpenParen);
                 stack.push(token.clone());
-            }, // if identifier is a function
+            } // if identifier is a function
             Token::Identifier(_) | Token::Number(_) => output.push(token.clone()),
             _ => {
                 // any operator
@@ -173,7 +232,6 @@ fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
             }
         }
     }
-    eprintln!("stack: {:?}\noutput: {:?}\ntokens: {:?}\n", stack, output, tokens.collect::<Vec<&Token>>());
     stack.iter().rev().for_each(|op| output.push(op.clone()));
     return Ok(output);
 }
@@ -181,6 +239,96 @@ fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_single_line() {
+        let input = "1+2";
+        let expected = vec![Statement::Expression(vec![
+            Token::Number(1.0),
+            Token::Number(2.0),
+            Token::Add,
+        ])];
+        let parsed = parse(&input);
+        if let Ok(statements) = parsed {
+            assert_eq!(statements, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn parses_multiple_lines() {
+        let input = "1+2\n3-4";
+        let expected = vec![
+            Statement::Expression(vec![Token::Number(1.0), Token::Number(2.0), Token::Add]),
+            Statement::Expression(vec![
+                Token::Number(3.0),
+                Token::Number(4.0),
+                Token::Subtract,
+            ]),
+        ];
+        let parsed = parse(&input);
+        if let Ok(statements) = parsed {
+            assert_eq!(statements, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn parses_variable_declaration() {
+        let input = "var=3";
+        let expected = vec![Statement::Declaration(Declaration {
+            name: "var".to_string(),
+            args: vec![],
+            body: vec![Token::Number(3.0)],
+        })];
+        let parsed = parse(&input);
+        if let Ok(statements) = parsed {
+            assert_eq!(statements, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn parses_function_declaration() {
+        let input = "f(x) = x";
+        let expected = vec![Statement::Declaration(Declaration {
+            name: "f".to_string(),
+            args: vec!["x".to_string()],
+            body: vec![Token::Identifier("x".to_string())],
+        })];
+        let parsed = parse(&input);
+        if let Ok(statements) = parsed {
+            assert_eq!(statements, expected)
+        } else {
+            assert!(false)
+        }
+    }
+
+    #[test]
+    fn parses_function_args() {
+        let input = "f(x, y, z) = x + y + z";
+        let expected = vec![Statement::Declaration(Declaration {
+            name: "f".to_string(),
+            args: vec!["x".to_string(), "y".to_string(), "z".to_string()],
+            body: vec![
+                Token::Identifier("x".to_string()),
+                Token::Identifier("y".to_string()),
+                Token::Add,
+                Token::Identifier("z".to_string()),
+                Token::Add,
+            ],
+        })];
+        let parsed = parse(&input);
+        if let Ok(statements) = parsed {
+            assert_eq!(statements, expected)
+        } else if let Err(e) = parsed {
+            println!("{:?}", e);
+            assert!(false)
+        }
+    }
 
     #[test]
     fn tokenize_single_number() {
@@ -543,7 +691,6 @@ mod tests {
             Token::Identifier("f".to_string()),
             Token::Number(6.0),
             Token::Add,
-            
         ];
         let result = infix_to_rpn(input);
         if let Ok(output) = result {
