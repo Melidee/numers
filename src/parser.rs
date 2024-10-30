@@ -139,21 +139,30 @@ fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
         match token {
             Token::OpenParen => stack.push(token.clone()),
             Token::CloseParen => {
-                while let Some(t) = stack.pop() {
-                    if t != Token::OpenParen {
-                        output.push(t.clone());
+                while !stack.is_empty() && let Some(top) = stack.pop() {
+                    if top == Token::OpenParen {
+                        if !stack.is_empty() && let Some(next_top) = stack.last() && next_top.is_identifier() {
+                            output.push(stack.pop().unwrap());
+                        }
+                        break;
+                    } else {
+                        output.push(top.clone());
                     }
                 }
             }
             Token::Comma => {
-                while let Some(t) = stack.last() {
-                    if t != &Token::OpenParen {
-                        output.push(t.clone());
-                        stack.pop();
+                while !stack.is_empty() && let Some(top) = stack.pop() {
+                    if top == Token::OpenParen {
+                        break;
+                    } else {
+                        output.push(top.clone());
                     }
                 }
             }
-            Token::Identifier(_) if next_is_opening => stack.push(token.clone()), // if identifier is a function
+            Token::Identifier(_) if next_is_opening => {
+                stack.push(Token::OpenParen);
+                stack.push(token.clone());
+            }, // if identifier is a function
             Token::Identifier(_) | Token::Number(_) => output.push(token.clone()),
             _ => {
                 // any operator
