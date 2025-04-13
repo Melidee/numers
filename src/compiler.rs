@@ -2,8 +2,6 @@ use anyhow::Result;
 use std::{
     collections::HashMap,
     fmt::{self},
-    net::IpAddr,
-    process::id,
 };
 
 use crate::{
@@ -27,7 +25,7 @@ fn compile(statements: Vec<parser::Statement>) -> Result<String> {
             parser::Statement::Expression(expr) => {
                 let (statements, result_id) = compile_expr(expr, &mut varcounter)?;
                 main_func.statements.extend_from_slice(&statements);
-                main_func.statements.push(Statement::new(identifier, operation));
+                //main_func.statements.push(Statement::new(identifier, operation));
             }
         }
     }

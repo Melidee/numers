@@ -1,26 +1,29 @@
-use crate::error::ParseError;
+use crate::error::CompileError;
 use anyhow::{Context, Result};
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum Statement {
     Declaration(Declaration),
-    Expression(Vec<Token>),
+    Expression(Vec<ParseToken>),
 }
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Declaration {
     name: String,
     args: Vec<String>,
-    body: Vec<Token>,
+    body: Vec<ParseToken>,
 }
+
+
+impl Declaration {}
 
 pub fn parse(source: &str) -> Result<Vec<Statement>> {
     let mut statements: Vec<Statement> = vec![];
     for (line_num, line) in source.split('\n').enumerate() {
         let tokens = tokenize(line).context(format!("on line {line_num}"))?;
-        if tokens.contains(&Token::Assign) {
+        if tokens.contains(&ParseToken::Assign) {
             let (id, expr) = tokens
-                .split_once(|t| t == &Token::Assign)
+                .split_once(|t| t == &ParseToken::Assign)
                 .expect("there must be at least one ocurrance of '=' in tokens");
             let (name, args) = split_declaration(id)?;
             let body = infix_to_rpn(expr.to_vec()).context(format!("on line {line_num}"))?;
@@ -33,11 +36,11 @@ pub fn parse(source: &str) -> Result<Vec<Statement>> {
     return Ok(statements);
 }
 
-fn split_declaration(declaration: &[Token]) -> Result<(String, Vec<String>)> {
-    let name = if let Some(Token::Identifier(n)) = declaration.get(0) {
+fn split_declaration(declaration: &[ParseToken]) -> Result<(String, Vec<String>)> {
+    let name = if let Some(ParseToken::Identifier(n)) = declaration.get(0) {
         n
     } else {
-        return Err(ParseError::InvalidAssignment.into());
+        return Err(CompileError::InvalidAssignment.into());
     };
 
     let args = declaration
@@ -45,7 +48,7 @@ fn split_declaration(declaration: &[Token]) -> Result<(String, Vec<String>)> {
         .skip(1)
         .filter(|token| token.is_identifier())
         .map(|token| match token {
-            Token::Identifier(arg) => arg.to_owned(),
+            ParseToken::Identifier(arg) => arg.to_owned(),
             _ => panic!("impossible"),
         })
         .collect();
@@ -54,7 +57,7 @@ fn split_declaration(declaration: &[Token]) -> Result<(String, Vec<String>)> {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum Token {
+pub enum ParseToken {
     Add,
     Subtract,
     Multiply,
@@ -68,56 +71,64 @@ pub enum Token {
     Number(f64),
 }
 
-impl Token {
-    fn is_operator(&self) -> bool {
+impl ParseToken {
+    pub fn is_operator(&self) -> bool {
         [
-            Token::Add,
-            Token::Subtract,
-            Token::Multiply,
-            Token::Divide,
-            Token::Exponent,
+            ParseToken::Add,
+            ParseToken::Subtract,
+            ParseToken::Multiply,
+            ParseToken::Divide,
+            ParseToken::Exponent,
         ]
         .contains(self)
     }
 
     fn presidence(&self) -> i32 {
         match self {
-            Token::Add => 2,
-            Token::Subtract => 2,
-            Token::Multiply => 3,
-            Token::Divide => 3,
-            Token::Exponent => 4,
+            ParseToken::Add => 2,
+            ParseToken::Subtract => 2,
+            ParseToken::Multiply => 3,
+            ParseToken::Divide => 3,
+            ParseToken::Exponent => 4,
             _ => 1,
         }
     }
 
     fn is_left_associative(&self) -> bool {
         match self {
-            Token::Add | Token::Subtract | Token::Multiply | Token::Divide => true,
-            Token::Exponent => false,
+            ParseToken::Add | ParseToken::Subtract | ParseToken::Multiply | ParseToken::Divide => {
+                true
+            }
+            ParseToken::Exponent => false,
             _ => false,
         }
     }
 
-    fn is_number(&self) -> bool {
+    pub fn is_number(&self) -> bool {
         match self {
-            Token::Number(_) => true,
+            ParseToken::Number(_) => true,
             _ => false,
         }
     }
 
-    fn is_identifier(&self) -> bool {
+    pub fn is_identifier(&self) -> bool {
         match self {
-            Token::Identifier(_) => true,
+            ParseToken::Identifier(_) => true,
             _ => false,
         }
     }
 }
 
+pub enum EvalUnit {
+    Number(f64),
+    Variable(String),
+    Operation(String, i32),
+}
+
 const DIGITS: &str = ".0123456789";
 const ALPHABET: &str = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-fn tokenize(source: &str) -> Result<Vec<Token>> {
-    let mut tokens: Vec<Token> = vec![];
+fn tokenize(source: &str) -> Result<Vec<ParseToken>> {
+    let mut tokens: Vec<ParseToken> = vec![];
     let mut chars = source.chars().peekable();
     while let Some(ch) = chars.next() {
         match ch {
@@ -134,7 +145,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
                 let parsed = number
                     .parse::<f64>()
                     .context(format!("failed to parse float literal: {}", number))?;
-                tokens.push(Token::Number(parsed));
+                tokens.push(ParseToken::Number(parsed));
             }
             'a'..='z' | 'A'..='Z' | '_' => {
                 let mut identifier = ch.to_string();
@@ -146,19 +157,19 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
                         break;
                     }
                 }
-                tokens.push(Token::Identifier(identifier));
+                tokens.push(ParseToken::Identifier(identifier));
             }
-            '+' => tokens.push(Token::Add),
-            '-' => tokens.push(Token::Subtract),
-            '*' => tokens.push(Token::Multiply),
-            '/' => tokens.push(Token::Divide),
-            '^' => tokens.push(Token::Exponent),
-            '=' => tokens.push(Token::Assign),
-            ',' => tokens.push(Token::Comma),
-            '(' => tokens.push(Token::OpenParen),
-            ')' => tokens.push(Token::CloseParen),
+            '+' => tokens.push(ParseToken::Add),
+            '-' => tokens.push(ParseToken::Subtract),
+            '*' => tokens.push(ParseToken::Multiply),
+            '/' => tokens.push(ParseToken::Divide),
+            '^' => tokens.push(ParseToken::Exponent),
+            '=' => tokens.push(ParseToken::Assign),
+            ',' => tokens.push(ParseToken::Comma),
+            '(' => tokens.push(ParseToken::OpenParen),
+            ')' => tokens.push(ParseToken::CloseParen),
             ' ' | '\t' => {}
-            _ => return Err(ParseError::InvalidCharacter(ch).into()),
+            _ => return Err(CompileError::InvalidCharacter(ch).into()),
         }
     }
     return Ok(tokens);
@@ -167,34 +178,37 @@ fn tokenize(source: &str) -> Result<Vec<Token>> {
 /// Converts an infix expression to reverse polish notation to make evaluation simpler.
 /// This function is an implementation of the shunting yard algorithm.
 /// https://en.wikipedia.org/wiki/Shunting_yard_algorithm#The_algorithm_in_detail
-fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
-    let mut output: Vec<Token> = vec![];
-    let mut stack: Vec<Token> = vec![];
+fn infix_to_rpn(expr: Vec<ParseToken>) -> Result<Vec<ParseToken>> {
+    let mut output: Vec<ParseToken> = vec![];
+    let mut stack: Vec<ParseToken> = vec![];
     let mut tokens = expr.iter().peekable();
 
-    let should_pop = |t: &Token, stack: &Vec<Token>| {
+    let should_pop = |t: &ParseToken, stack: &Vec<ParseToken>| {
         if stack.is_empty() {
             return false;
         }
         let last = stack[stack.len() - 1].clone();
-        last != Token::OpenParen
+        last != ParseToken::OpenParen
             && (last.presidence() > t.presidence()
                 || last.presidence() >= t.presidence() && t.is_left_associative())
     };
 
     while let Some(token) = tokens.next() {
         let next_is_opening = if let Some(next) = tokens.peek() {
-            next == &&Token::OpenParen
+            next == &&ParseToken::OpenParen
         } else {
             false
         };
         match token {
-            Token::OpenParen => stack.push(token.clone()),
-            Token::CloseParen => {
+            ParseToken::OpenParen => stack.push(token.clone()),
+            ParseToken::CloseParen => {
+                /* TOMORROW refactor this so this function returns eval units, 
+                and function args are counted, perhaps store values in a buf 
+                so if a function is reached you can push the args and count them */
                 while !stack.is_empty()
                     && let Some(top) = stack.pop()
                 {
-                    if top == Token::OpenParen {
+                    if top == ParseToken::OpenParen {
                         if !stack.is_empty()
                             && let Some(next_top) = stack.last()
                             && next_top.is_identifier()
@@ -207,22 +221,22 @@ fn infix_to_rpn(expr: Vec<Token>) -> Result<Vec<Token>> {
                     }
                 }
             }
-            Token::Comma => {
+            ParseToken::Comma => {
                 while !stack.is_empty()
                     && let Some(top) = stack.pop()
                 {
-                    if top == Token::OpenParen {
+                    if top == ParseToken::OpenParen {
                         break;
                     } else {
                         output.push(top.clone());
                     }
                 }
             }
-            Token::Identifier(_) if next_is_opening => {
-                stack.push(Token::OpenParen);
+            ParseToken::Identifier(_) if next_is_opening => {
+                stack.push(ParseToken::OpenParen);
                 stack.push(token.clone());
-            } // if identifier is a function
-            Token::Identifier(_) | Token::Number(_) => output.push(token.clone()),
+            }
+            ParseToken::Identifier(_) | ParseToken::Number(_) => output.push(token.clone()),
             _ => {
                 // any operator
                 while should_pop(token, &stack) {
@@ -244,9 +258,9 @@ mod tests {
     fn parses_single_line() {
         let input = "1+2";
         let expected = vec![Statement::Expression(vec![
-            Token::Number(1.0),
-            Token::Number(2.0),
-            Token::Add,
+            ParseToken::Number(1.0),
+            ParseToken::Number(2.0),
+            ParseToken::Add,
         ])];
         let parsed = parse(&input);
         if let Ok(statements) = parsed {
@@ -260,11 +274,15 @@ mod tests {
     fn parses_multiple_lines() {
         let input = "1+2\n3-4";
         let expected = vec![
-            Statement::Expression(vec![Token::Number(1.0), Token::Number(2.0), Token::Add]),
             Statement::Expression(vec![
-                Token::Number(3.0),
-                Token::Number(4.0),
-                Token::Subtract,
+                ParseToken::Number(1.0),
+                ParseToken::Number(2.0),
+                ParseToken::Add,
+            ]),
+            Statement::Expression(vec![
+                ParseToken::Number(3.0),
+                ParseToken::Number(4.0),
+                ParseToken::Subtract,
             ]),
         ];
         let parsed = parse(&input);
@@ -281,7 +299,7 @@ mod tests {
         let expected = vec![Statement::Declaration(Declaration {
             name: "var".to_string(),
             args: vec![],
-            body: vec![Token::Number(3.0)],
+            body: vec![ParseToken::Number(3.0)],
         })];
         let parsed = parse(&input);
         if let Ok(statements) = parsed {
@@ -297,7 +315,7 @@ mod tests {
         let expected = vec![Statement::Declaration(Declaration {
             name: "f".to_string(),
             args: vec!["x".to_string()],
-            body: vec![Token::Identifier("x".to_string())],
+            body: vec![ParseToken::Identifier("x".to_string())],
         })];
         let parsed = parse(&input);
         if let Ok(statements) = parsed {
@@ -314,11 +332,11 @@ mod tests {
             name: "f".to_string(),
             args: vec!["x".to_string(), "y".to_string(), "z".to_string()],
             body: vec![
-                Token::Identifier("x".to_string()),
-                Token::Identifier("y".to_string()),
-                Token::Add,
-                Token::Identifier("z".to_string()),
-                Token::Add,
+                ParseToken::Identifier("x".to_string()),
+                ParseToken::Identifier("y".to_string()),
+                ParseToken::Add,
+                ParseToken::Identifier("z".to_string()),
+                ParseToken::Add,
             ],
         })];
         let parsed = parse(&input);
@@ -331,9 +349,44 @@ mod tests {
     }
 
     #[test]
+    fn parses_function_call() {
+        let input = "func(x, 3)";
+        let expected = vec![Statement::Expression(vec![
+            ParseToken::Identifier("x".to_string()),
+            ParseToken::Number(3.0),
+            ParseToken::Identifier("func".to_string()),
+        ])];
+        let parsed = parse(&input);
+        if let Ok(statements) = parsed {
+            assert_eq!(statements, expected)
+        } else {
+            assert!(false)
+        }
+    }
+    #[test]
+    fn parses_function_call_with_arg_expression() {
+        let input = "func(x, 3 + 4 * 2)";
+        let expected = vec![Statement::Expression(vec![
+            // [ x 3 4 2 * + func() ]
+            ParseToken::Identifier("x".to_string()),
+            ParseToken::Number(3.0),
+            ParseToken::Number(4.0),
+            ParseToken::Number(2.0),
+            ParseToken::Multiply,
+            ParseToken::Add,
+            ParseToken::Identifier("func".to_string()),
+        ])];
+        let parsed = parse(&input);
+        if let Ok(statements) = parsed {
+            assert_eq!(statements, expected)
+        } else {
+            assert!(false)
+        }
+    }
+    #[test]
     fn tokenize_single_number() {
         let source = "1";
-        let expected = vec![Token::Number(1.0)];
+        let expected = vec![ParseToken::Number(1.0)];
 
         let tokenized = tokenize(&source);
         if let Ok(tokens) = tokenized {
@@ -346,7 +399,7 @@ mod tests {
     #[test]
     fn tokenize_decimal_number() {
         let source = "1.0";
-        let expected = vec![Token::Number(1.0)];
+        let expected = vec![ParseToken::Number(1.0)];
 
         let tokenized = tokenize(&source);
         if let Ok(tokens) = tokenized {
@@ -359,7 +412,7 @@ mod tests {
     #[test]
     fn tokenize_single_identifier() {
         let source = "var";
-        let expected = vec![Token::Identifier("var".to_string())];
+        let expected = vec![ParseToken::Identifier("var".to_string())];
 
         let tokenized = tokenize(&source);
         if let Ok(tokens) = tokenized {
@@ -372,7 +425,11 @@ mod tests {
     #[test]
     fn tokenize_1_plus_2() {
         let source = "1+2";
-        let expected = vec![Token::Number(1.0), Token::Add, Token::Number(2.0)];
+        let expected = vec![
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::Number(2.0),
+        ];
 
         let tokenized = tokenize(&source);
         if let Ok(tokens) = tokenized {
@@ -386,11 +443,11 @@ mod tests {
     fn tokenize_with_whitespace() {
         let source = "1 +  2 -\t3";
         let expected = vec![
-            Token::Number(1.0),
-            Token::Add,
-            Token::Number(2.0),
-            Token::Subtract,
-            Token::Number(3.0),
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::Number(2.0),
+            ParseToken::Subtract,
+            ParseToken::Number(3.0),
         ];
 
         let tokenized = tokenize(&source);
@@ -405,17 +462,17 @@ mod tests {
     fn tokenize_all_operators() {
         let source = "1+2-3*4/5^6";
         let expected = vec![
-            Token::Number(1.0),
-            Token::Add,
-            Token::Number(2.0),
-            Token::Subtract,
-            Token::Number(3.0),
-            Token::Multiply,
-            Token::Number(4.0),
-            Token::Divide,
-            Token::Number(5.0),
-            Token::Exponent,
-            Token::Number(6.0),
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::Number(2.0),
+            ParseToken::Subtract,
+            ParseToken::Number(3.0),
+            ParseToken::Multiply,
+            ParseToken::Number(4.0),
+            ParseToken::Divide,
+            ParseToken::Number(5.0),
+            ParseToken::Exponent,
+            ParseToken::Number(6.0),
         ];
 
         let tokenized = tokenize(&source);
@@ -429,7 +486,7 @@ mod tests {
     #[test]
     fn tokenize_empty_parenthesis() {
         let source = "()";
-        let expected = vec![Token::OpenParen, Token::CloseParen];
+        let expected = vec![ParseToken::OpenParen, ParseToken::CloseParen];
 
         let tokenized = tokenize(&source);
         if let Ok(tokens) = tokenized {
@@ -443,13 +500,13 @@ mod tests {
     fn tokenize_parenthesis_operation() {
         let source = "1+(2-3)";
         let expected = vec![
-            Token::Number(1.0),
-            Token::Add,
-            Token::OpenParen,
-            Token::Number(2.0),
-            Token::Subtract,
-            Token::Number(3.0),
-            Token::CloseParen,
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::OpenParen,
+            ParseToken::Number(2.0),
+            ParseToken::Subtract,
+            ParseToken::Number(3.0),
+            ParseToken::CloseParen,
         ];
 
         let tokenized = tokenize(&source);
@@ -464,9 +521,9 @@ mod tests {
     fn tokenize_zero_arg_function() {
         let source = "f()";
         let expected = vec![
-            Token::Identifier("f".to_string()),
-            Token::OpenParen,
-            Token::CloseParen,
+            ParseToken::Identifier("f".to_string()),
+            ParseToken::OpenParen,
+            ParseToken::CloseParen,
         ];
 
         let tokenized = tokenize(&source);
@@ -481,10 +538,10 @@ mod tests {
     fn tokenize_simple_function() {
         let source = "func(x)";
         let expected = vec![
-            Token::Identifier("func".to_string()),
-            Token::OpenParen,
-            Token::Identifier("x".to_string()),
-            Token::CloseParen,
+            ParseToken::Identifier("func".to_string()),
+            ParseToken::OpenParen,
+            ParseToken::Identifier("x".to_string()),
+            ParseToken::CloseParen,
         ];
 
         let tokenized = tokenize(&source);
@@ -499,19 +556,19 @@ mod tests {
     fn tokenize_function_complex_args() {
         let source = "f(1+2,g(x),var)";
         let expected = vec![
-            Token::Identifier("f".to_string()),
-            Token::OpenParen,
-            Token::Number(1.0),
-            Token::Add,
-            Token::Number(2.0),
-            Token::Comma,
-            Token::Identifier("g".to_string()),
-            Token::OpenParen,
-            Token::Identifier("x".to_string()),
-            Token::CloseParen,
-            Token::Comma,
-            Token::Identifier("var".to_string()),
-            Token::CloseParen,
+            ParseToken::Identifier("f".to_string()),
+            ParseToken::OpenParen,
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::Number(2.0),
+            ParseToken::Comma,
+            ParseToken::Identifier("g".to_string()),
+            ParseToken::OpenParen,
+            ParseToken::Identifier("x".to_string()),
+            ParseToken::CloseParen,
+            ParseToken::Comma,
+            ParseToken::Identifier("var".to_string()),
+            ParseToken::CloseParen,
         ];
 
         let tokenized = tokenize(&source);
@@ -540,15 +597,15 @@ mod tests {
     fn rpn_conversion_1_plus_2() {
         let input = vec![
             // [1 + 2]
-            Token::Number(1.0),
-            Token::Add,
-            Token::Number(2.0),
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::Number(2.0),
         ];
         let expected = vec![
             // [1 2 +]
-            Token::Number(1.0),
-            Token::Number(2.0),
-            Token::Add,
+            ParseToken::Number(1.0),
+            ParseToken::Number(2.0),
+            ParseToken::Add,
         ];
         let result = infix_to_rpn(input);
         if let Ok(output) = result {
@@ -562,31 +619,31 @@ mod tests {
     fn rpn_conversion_all_operators() {
         let input = vec![
             // [1 + 2 - 3 * 4 / 5 ^ 6]
-            Token::Number(1.0),
-            Token::Add,
-            Token::Number(2.0),
-            Token::Subtract,
-            Token::Number(3.0),
-            Token::Multiply,
-            Token::Number(4.0),
-            Token::Divide,
-            Token::Number(5.0),
-            Token::Exponent,
-            Token::Number(6.0),
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::Number(2.0),
+            ParseToken::Subtract,
+            ParseToken::Number(3.0),
+            ParseToken::Multiply,
+            ParseToken::Number(4.0),
+            ParseToken::Divide,
+            ParseToken::Number(5.0),
+            ParseToken::Exponent,
+            ParseToken::Number(6.0),
         ];
         let expected = vec![
             // [1 2 + 3 4 * 5 6 ^ / -]
-            Token::Number(1.0),
-            Token::Number(2.0),
-            Token::Add,
-            Token::Number(3.0),
-            Token::Number(4.0),
-            Token::Multiply,
-            Token::Number(5.0),
-            Token::Number(6.0),
-            Token::Exponent,
-            Token::Divide,
-            Token::Subtract,
+            ParseToken::Number(1.0),
+            ParseToken::Number(2.0),
+            ParseToken::Add,
+            ParseToken::Number(3.0),
+            ParseToken::Number(4.0),
+            ParseToken::Multiply,
+            ParseToken::Number(5.0),
+            ParseToken::Number(6.0),
+            ParseToken::Exponent,
+            ParseToken::Divide,
+            ParseToken::Subtract,
         ];
         let result = infix_to_rpn(input);
         if let Ok(output) = result {
@@ -600,21 +657,21 @@ mod tests {
     fn rpn_conversion_with_parenthesis() {
         let input = vec![
             // [1 + ( 2 + 3)]
-            Token::Number(1.0),
-            Token::Add,
-            Token::OpenParen,
-            Token::Number(2.0),
-            Token::Subtract,
-            Token::Number(3.0),
-            Token::CloseParen,
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::OpenParen,
+            ParseToken::Number(2.0),
+            ParseToken::Subtract,
+            ParseToken::Number(3.0),
+            ParseToken::CloseParen,
         ];
         let expected = vec![
             // [1 2 3 - +]
-            Token::Number(1.0),
-            Token::Number(2.0),
-            Token::Number(3.0),
-            Token::Subtract,
-            Token::Add,
+            ParseToken::Number(1.0),
+            ParseToken::Number(2.0),
+            ParseToken::Number(3.0),
+            ParseToken::Subtract,
+            ParseToken::Add,
         ];
         let result = infix_to_rpn(input);
         if let Ok(output) = result {
@@ -628,28 +685,28 @@ mod tests {
     fn rpn_conversion_with_functions() {
         let input = vec![
             // [1 + ( f ( x , y) - 3 ) ]
-            Token::Number(1.0),
-            Token::Add,
-            Token::OpenParen,
-            Token::Identifier("f".to_string()),
-            Token::OpenParen,
-            Token::Identifier("x".to_string()),
-            Token::Comma,
-            Token::Identifier("y".to_string()),
-            Token::CloseParen,
-            Token::Subtract,
-            Token::Number(3.0),
-            Token::CloseParen,
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::OpenParen,
+            ParseToken::Identifier("f".to_string()),
+            ParseToken::OpenParen,
+            ParseToken::Identifier("x".to_string()),
+            ParseToken::Comma,
+            ParseToken::Identifier("y".to_string()),
+            ParseToken::CloseParen,
+            ParseToken::Subtract,
+            ParseToken::Number(3.0),
+            ParseToken::CloseParen,
         ];
         let expected = vec![
             // [ 1 x y f() 3 - +]
-            Token::Number(1.0),
-            Token::Identifier("x".to_string()),
-            Token::Identifier("y".to_string()),
-            Token::Identifier("f".to_string()),
-            Token::Number(3.0),
-            Token::Subtract,
-            Token::Add,
+            ParseToken::Number(1.0),
+            ParseToken::Identifier("x".to_string()),
+            ParseToken::Identifier("y".to_string()),
+            ParseToken::Identifier("f".to_string()),
+            ParseToken::Number(3.0),
+            ParseToken::Subtract,
+            ParseToken::Add,
         ];
         let result = infix_to_rpn(input);
         if let Ok(output) = result {
@@ -663,34 +720,34 @@ mod tests {
     fn rpn_conversion_function_arguments() {
         let input = vec![
             // [f ( 1 + 2 , 3 - 4 / 5 ) + 6]
-            Token::Identifier("f".to_string()),
-            Token::OpenParen,
-            Token::Number(1.0),
-            Token::Add,
-            Token::Number(2.0),
-            Token::Comma,
-            Token::Number(3.0),
-            Token::Subtract,
-            Token::Number(4.0),
-            Token::Divide,
-            Token::Number(5.0),
-            Token::CloseParen,
-            Token::Add,
-            Token::Number(6.0),
+            ParseToken::Identifier("f".to_string()),
+            ParseToken::OpenParen,
+            ParseToken::Number(1.0),
+            ParseToken::Add,
+            ParseToken::Number(2.0),
+            ParseToken::Comma,
+            ParseToken::Number(3.0),
+            ParseToken::Subtract,
+            ParseToken::Number(4.0),
+            ParseToken::Divide,
+            ParseToken::Number(5.0),
+            ParseToken::CloseParen,
+            ParseToken::Add,
+            ParseToken::Number(6.0),
         ];
         let expected = vec![
-            // [f ( 1 2 + , 3 4 5 / - ) 6 +]
-            Token::Number(1.0),
-            Token::Number(2.0),
-            Token::Add,
-            Token::Number(3.0),
-            Token::Number(4.0),
-            Token::Number(5.0),
-            Token::Divide,
-            Token::Subtract,
-            Token::Identifier("f".to_string()),
-            Token::Number(6.0),
-            Token::Add,
+            // [1 2 + , 3 4 5 / - f() 6 +]
+            ParseToken::Number(1.0),
+            ParseToken::Number(2.0),
+            ParseToken::Add,
+            ParseToken::Number(3.0),
+            ParseToken::Number(4.0),
+            ParseToken::Number(5.0),
+            ParseToken::Divide,
+            ParseToken::Subtract,
+            ParseToken::Identifier("f".to_string()),
+            ParseToken::Number(6.0),
+            ParseToken::Add,
         ];
         let result = infix_to_rpn(input);
         if let Ok(output) = result {
